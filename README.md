@@ -13,8 +13,8 @@ O projeto é independente do TecnoHead Solar. Ele não consulta, autentica, conf
 | GPIO17 | Reservado | Não aparece no YAML e não há ação `uart.write` |
 | Controles serial | Implementados | Selects com restauração e aplicação via `load_settings()` |
 | Captura íntegra | Implementada | MQTT local → App HAOS; `.bin` preserva `0x00` e bytes não imprimíveis |
-| Dashboard nativo | Arquivo fornecido | Importação no HA real depende da criação das entidades após o primeiro boot |
-| Console HAOS | App fornecido | Ingress, buffer recente e exportação por sessão |
+| Dashboard nativo | Criado no HA real | `/tecnohead-meter-reader`; entidades do ESP ficam disponíveis após o primeiro boot |
+| Console HAOS | Instalado e em funcionamento | Ingress v0.1.1; MQTT local conectado, aguardando o ESP publicar |
 | Teste de bancada | Simulador fornecido | Nenhuma porta USB apareceu neste host durante a implementação; transmissão física não foi executada |
 | ESP32 físico | Pendente | Não havia COM/USB serial visível no host |
 | Nansen físico | Bloqueado por segurança | Nenhuma ligação foi feita; TX permanece desativado |
@@ -99,13 +99,13 @@ python -m pytest
 python -m compileall capture-console/app tests
 ```
 
-O firmware foi compilado pelo ESPHome Device Builder instalado no HAOS, porque o host de desenvolvimento não possui a CLI `esphome`. A ausência de uma placa conectada impede declarar instalação física, OTA, bytes simulados recebidos no ESP e captura de telas do dispositivo como concluídos. A evidência do Builder está registrada em [`docs/VALIDACAO_BUILDER_REAL.md`](docs/VALIDACAO_BUILDER_REAL.md).
+O firmware foi compilado pelo ESPHome Device Builder instalado no HAOS, porque o host de desenvolvimento não possui a CLI `esphome`. A ausência de uma placa conectada impede declarar instalação física, OTA, bytes simulados recebidos no ESP e captura de telas do dispositivo como concluídos. A evidência do Builder está registrada em [`docs/VALIDACAO_BUILDER_REAL.md`](docs/VALIDACAO_BUILDER_REAL.md). O console Ingress foi instalado e atualizado no HA real; a tela validada mostra MQTT conectado, zero mensagens e zero bytes armazenados, coerente com a ausência do ESP físico.
 
 ## Versões
 
 - Firmware/Builder alvo: ESPHome 2026.9.1 / Device Builder 1.14.9.
 - Projeto inicial: `0.1.0`.
-- Release do firmware: `v0.1.0`; a imagem do App é publicada pelo workflow quando o GitHub concluir o build da tag.
+- Release atual: `v0.1.1`; a imagem multi-arquitetura do App foi publicada no GHCR e atualizada no HAOS.
 
 ## Documentação
 
