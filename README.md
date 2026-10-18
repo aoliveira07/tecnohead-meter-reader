@@ -53,6 +53,13 @@ O primeiro boot mantém `Captura RX` desligada. A configuração inicial é `960
 - O armazenamento fica no volume persistente do App em `/data/sessions`. Há limite de 64 MiB por sessão e 256 MiB no total; lacunas de sequência e estouro são marcados como `incomplete`.
 - O Recorder não recebe o fluxo bruto. O dashboard mostra apenas prévias curtas; o console é a fonte de exportação íntegra.
 
+## Regra de execução do projeto
+
+O procedimento autorizado para este projeto está em
+[`docs/EXECUCAO_AUTORIZADA.md`](docs/EXECUCAO_AUTORIZADA.md): executar a entrega até
+instalar, verificar e deixar os componentes funcionando quando o ambiente permitir,
+sem confundir bancada segura com leitura física do Nansen.
+
 ## Teste seguro de bancada
 
 Use outro microcontrolador ou adaptador UART TTL com nível lógico **3,3 V**, GND comum da bancada e TX do simulador ligado somente ao GPIO16. Não use adaptador RS232, não use os bornes do Nansen e não conecte GPIO17.
@@ -109,3 +116,4 @@ O firmware foi compilado pelo ESPHome Device Builder instalado no HAOS, porque o
 - [Diagnóstico passivo de protocolos](docs/PROTOCOLOS.md)
 - [Homologação](docs/HOMOLOGACAO.md)
 - [Capturas reais](docs/screenshots/README.md)
+- [Regra operacional autorizada](docs/EXECUCAO_AUTORIZADA.md)

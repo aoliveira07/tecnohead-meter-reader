@@ -1,6 +1,6 @@
 [project]
 name = "tecnohead-meter-reader"
-version = "0.1.0"
+version = "0.1.1"
 description = "Captura passiva UART em ESPHome e console local no Home Assistant"
 requires-python = ">=3.11"
 

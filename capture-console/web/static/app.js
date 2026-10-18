@@ -30,13 +30,13 @@ function renderSessions(sessions) {
     <article class="session">
       <div><div class="session-title">${escapeHtml(session.device)} · sessão ${escapeHtml(session.session)}</div>
       <small>${escapeHtml(session.started_at)} · ${escapeHtml(session.frames)} frames · ${formatBytes(session.bytes_written)} · ${session.incomplete ? "INCOMPLETA" : "completa até o último evento"}</small></div>
-      <div class="session-actions"><a href="/api/sessions/${encodeURIComponent(session.key)}/bin"><button>.bin</button></a><a href="/api/sessions/${encodeURIComponent(session.key)}/jsonl"><button>.jsonl</button></a><a href="/api/sessions/${encodeURIComponent(session.key)}/csv"><button>.csv</button></a></div>
+      <div class="session-actions"><a href="api/sessions/${encodeURIComponent(session.key)}/bin"><button>.bin</button></a><a href="api/sessions/${encodeURIComponent(session.key)}/jsonl"><button>.jsonl</button></a><a href="api/sessions/${encodeURIComponent(session.key)}/csv"><button>.csv</button></a></div>
     </article>`).join("");
 }
 
 async function refresh() {
   try {
-    const [status, sessions, recent] = await Promise.all([json("/api/status"), json("/api/sessions"), json("/api/recent")]);
+    const [status, sessions, recent] = await Promise.all([json("api/status"), json("api/sessions"), json("api/recent")]);
     const mqttOnline = Boolean(status.mqtt.connected);
     $("#mqtt-state").textContent = mqttOnline ? "MQTT conectado" : "MQTT offline";
     $("#mqtt-state").className = `badge ${mqttOnline ? "online" : "offline"}`;
@@ -57,7 +57,7 @@ async function refresh() {
 document.querySelectorAll("button[data-command]").forEach((button) => {
   button.addEventListener("click", async () => {
     button.disabled = true;
-    try { await json(`/api/command/${button.dataset.command}`, {method: "POST"}); await refresh(); }
+    try { await json(`api/command/${button.dataset.command}`, {method: "POST"}); await refresh(); }
     catch (error) { $("#error-state").textContent = error.message; }
     finally { button.disabled = false; }
   });

@@ -1,7 +1,7 @@
 name: "TecnoHead Meter Reader — Console"
 slug: "tecnohead_meter_reader"
 description: "Console local, buffer persistente e exportação de capturas UART do TecnoHead Meter Reader"
-version: "0.1.0"
+version: "0.1.1"
 stage: experimental
 url: "https://github.com/aoliveira07/tecnohead-meter-reader"
 startup: application
