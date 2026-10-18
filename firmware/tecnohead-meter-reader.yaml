@@ -1,0 +1,646 @@
+# TecnoHead Meter Reader — laboratório serial RX-only
+#
+# Este firmware nunca configura tx_pin. GPIO16 é RX da UART2; GPIO17 fica
+# reservado e não é inicializado nem usado por ações uart.write.
+# A entrada precisa ser UART TTL 3,3 V segura de bancada. RS232 do Nansen
+# exige conversor isolado, autorização e validação elétrica independente.
+
+substitutions:
+  device_name: tecnohead-meter-reader
+  friendly_name: TecnoHead Meter Reader
+  capture_topic: tecnohead/meter-reader/tecnohead-meter-reader/capture
+  command_topic: tecnohead/meter-reader/tecnohead-meter-reader/command
+
+esphome:
+  name: ${device_name}
+  friendly_name: ${friendly_name}
+  min_version: 2026.9.1
+  project:
+    name: tecnohead.meter_reader
+    version: "0.1.0"
+  comment: "Captura passiva UART em GPIO16; TX GPIO17 reservado e desativado."
+  includes:
+    - components/tecnohead_meter_reader_helpers.h
+  on_boot:
+    - priority: -100
+      then:
+        - lambda: |-
+            id(boot_id) = std::to_string(millis());
+            id(capture_state).publish_state("Pronto");
+            id(capture_channel).publish_state("Aguardando MQTT");
+        - delay: 1000ms
+        - lambda: |-
+            id(apply_uart_settings)->execute(
+              static_cast<int32_t>(strtoul(id(baud_select).current_option().c_str(), nullptr, 10)),
+              id(parity_select).current_option() == "Par" ? 1 : (id(parity_select).current_option() == "Ímpar" ? 2 : 0),
+              static_cast<int32_t>(strtoul(id(data_bits_select).current_option().c_str(), nullptr, 10)),
+              static_cast<int32_t>(strtoul(id(stop_bits_select).current_option().c_str(), nullptr, 10)));
+
+esp32:
+  board: esp32dev
+  framework:
+    type: esp-idf
+
+logger:
+  level: INFO
+  baud_rate: 115200
+  tx_buffer_size: 512
+
+api:
+  encryption:
+    key: !secret api_encryption_key
+  reboot_timeout: 0s
+
+ota:
+  - platform: esphome
+    password: !secret ota_password
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  power_save_mode: none
+  ap:
+    ssid: "${friendly_name} Fallback"
+
+captive_portal:
+
+# O broker é usado somente para transmitir a captura ao App local no HAOS.
+# As entidades e os controles continuam disponíveis pela Native API.
+# MQTT discovery está desligado para não duplicar entidades no Home Assistant.
+mqtt:
+  id: mqtt_client
+  broker: !secret mqtt_broker
+  username: !secret mqtt_username
+  password: !secret mqtt_password
+  discovery: false
+  topic_prefix: null
+  log_topic: null
+  reboot_timeout: 0s
+  idf_send_async: true
+  on_connect:
+    - text_sensor.template.publish:
+        id: capture_channel
+        state: "MQTT conectado"
+  on_disconnect:
+    - text_sensor.template.publish:
+        id: capture_channel
+        state: "MQTT desconectado — captura íntegra indisponível"
+  on_message:
+    - topic: ${command_topic}
+      qos: 1
+      payload: start
+      then:
+        - switch.turn_on: capture_switch
+    - topic: ${command_topic}
+      qos: 1
+      payload: stop
+      then:
+        - switch.turn_off: capture_switch
+    - topic: ${command_topic}
+      qos: 1
+      payload: marker
+      then:
+        - button.press: marker_button
+    - topic: ${command_topic}
+      qos: 1
+      payload: clear
+      then:
+        - button.press: clear_button
+    - topic: ${command_topic}
+      qos: 1
+      payload: zero
+      then:
+        - button.press: zero_button
+
+# UART2 RX-only: o ESP32 não recebe tx_pin nesta configuração. GPIO17 não é
+# mencionado deliberadamente para impedir que o firmware o ative.
+uart:
+  id: meter_uart
+  rx_pin:
+    number: GPIO16
+    mode:
+      input: true
+  baud_rate: 9600
+  data_bits: 8
+  parity: NONE
+  stop_bits: 1
+  rx_buffer_size: 2048
+  rx_full_threshold: 1
+  rx_timeout: 2
+  debug:
+    direction: RX
+    dummy_receiver: false
+    after:
+      bytes: 256
+      timeout: 100ms
+    sequence:
+      - lambda: |-
+          if (direction != uart::UART_DIRECTION_RX || bytes.empty()) {
+            return;
+          }
+          const uint32_t now = millis();
+          id(rx_activity_ms) = now;
+          id(rx_traffic).publish_state(id(capture_enabled));
+          if (!id(capture_enabled) || id(reconfiguring)) {
+            id(discarded_bytes) += bytes.size();
+            id(capture_state).publish_state("Pausada — bytes descartados enquanto pausado");
+            id(discarded_sensor).publish_state(id(discarded_bytes));
+            return;
+          }
+
+          id(session_bytes) += bytes.size();
+          id(session_frame) += 1;
+          id(record_sequence) += 1;
+          id(bytes_sensor).publish_state(id(session_bytes));
+          id(frames_sensor).publish_state(id(session_frame));
+          id(last_frame_length).publish_state(std::to_string(bytes.size()) + " bytes");
+          id(last_frame_sequence).publish_state(std::to_string(id(record_sequence)));
+          id(last_frame_hex).publish_state(tecnohead_meter_reader::hex_preview(bytes));
+          id(last_frame_ascii).publish_state(tecnohead_meter_reader::ascii_preview(bytes));
+          id(passive_analysis).publish_state(tecnohead_meter_reader::passive_analysis(bytes));
+          id(last_frame_at).publish_state(std::to_string(now) + " ms desde boot");
+          id(capture_state).publish_state("Capturando");
+
+          const std::string baud = id(baud_select).current_option().c_str();
+          const std::string parity = id(parity_select).current_option().c_str();
+          const std::string data_bits = id(data_bits_select).current_option().c_str();
+          const std::string stop_bits = id(stop_bits_select).current_option().c_str();
+          id(applied_config).publish_state(
+            tecnohead_meter_reader::uart_label(baud, parity, data_bits, stop_bits));
+
+          if (!id(mqtt_client).is_connected()) {
+            id(discarded_records) += 1;
+            id(discarded_sensor).publish_state(id(discarded_records));
+            id(capture_channel).publish_state("MQTT desconectado — registro não confirmado");
+            return;
+          }
+
+          std::string payload = "{\"type\":\"frame\",\"device\":\"${device_name}\",\"boot_id\":\"";
+          payload += tecnohead_meter_reader::json_escape(id(boot_id));
+          payload += "\",\"session\":" + std::to_string(id(session_id));
+          payload += ",\"sequence\":" + std::to_string(id(record_sequence));
+          payload += ",\"offset\":" + std::to_string(id(session_bytes) - bytes.size());
+          payload += ",\"timestamp_ms\":" + std::to_string(now);
+          payload += ",\"direction\":\"RX\",\"length\":" + std::to_string(bytes.size());
+          payload += ",\"baud\":" + baud;
+          payload += ",\"parity\":\"" + tecnohead_meter_reader::json_escape(parity) + "\"";
+          payload += ",\"data_bits\":" + data_bits + ",\"stop_bits\":" + stop_bits;
+          payload += ",\"hex\":\"" + tecnohead_meter_reader::hex_compact(bytes) + "\"";
+          payload += ",\"grouping\":\"bytes_or_idle_timeout\"}";
+          const bool published = id(mqtt_client).publish("${capture_topic}", payload, 1, false);
+          if (!published) {
+            id(discarded_records) += 1;
+            id(discarded_sensor).publish_state(id(discarded_records));
+            id(capture_channel).publish_state("Falha de publicação MQTT — captura incompleta");
+          } else {
+            id(capture_channel).publish_state("MQTT conectado — registros confirmados no broker");
+          }
+
+# O lambda apenas drena a UART; o debugger acima agrupa e entrega os bytes.
+# Não há ação uart.write nem qualquer outro caminho de transmissão serial.
+interval:
+  - interval: 20ms
+    then:
+      - lambda: |-
+          uint8_t value = 0;
+          uint16_t drained = 0;
+          while (id(meter_uart).available() > 0 && drained < 128) {
+            if (!id(meter_uart).read_byte(&value)) {
+              break;
+            }
+            drained++;
+          }
+  - interval: 1s
+    then:
+      - lambda: |-
+          const uint32_t now = millis();
+          if (id(rx_activity_ms) == 0) {
+            id(last_activity_sensor).publish_state(NAN);
+            id(capture_state).publish_state(id(capture_enabled) ? "Sem tráfego" : "Pausada");
+          } else {
+            id(last_activity_sensor).publish_state((now - id(rx_activity_ms)) / 1000.0f);
+            id(rx_traffic).publish_state(id(capture_enabled) && ((now - id(rx_activity_ms)) < 1500));
+            if (id(capture_enabled) && (now - id(rx_activity_ms)) > 3000) {
+              id(capture_state).publish_state("Sem tráfego");
+            }
+          }
+          const uint32_t elapsed = now - id(rate_window_ms);
+          if (elapsed >= 1000) {
+            const uint32_t delta = id(session_bytes) - id(rate_window_bytes);
+            id(data_rate_sensor).publish_state((delta * 1000.0f) / elapsed);
+            id(rate_window_bytes) = id(session_bytes);
+            id(rate_window_ms) = now;
+          }
+
+script:
+  - id: apply_uart_settings
+    mode: restart
+    parameters:
+      baud: int
+      parity: int
+      data_bits: int
+      stop_bits: int
+    then:
+      - lambda: |-
+          id(reconfiguring) = true;
+          id(reconfigure_restore_capture) = id(capture_enabled);
+      - switch.turn_off: capture_switch
+      - delay: 150ms
+      - lambda: |-
+          uint8_t ignored = 0;
+          uint16_t flushed = 0;
+          while (id(meter_uart).available() > 0 && flushed < 2048) {
+            if (!id(meter_uart).read_byte(&ignored)) {
+              break;
+            }
+            flushed++;
+          }
+          id(meter_uart).set_baud_rate(static_cast<uint32_t>(baud));
+          id(meter_uart).set_parity(static_cast<uart::UARTParityOptions>(parity));
+          id(meter_uart).set_data_bits(static_cast<uint8_t>(data_bits));
+          id(meter_uart).set_stop_bits(static_cast<uint8_t>(stop_bits));
+          id(meter_uart).load_settings();
+          id(applied_config).publish_state(
+            tecnohead_meter_reader::uart_label(
+              std::to_string(baud),
+              parity == 1 ? "Par" : (parity == 2 ? "Ímpar" : "Nenhuma"),
+              std::to_string(data_bits),
+              std::to_string(stop_bits)));
+      - if:
+          condition:
+            lambda: return id(reconfigure_restore_capture);
+          then:
+            - switch.turn_on: capture_switch
+      - lambda: |-
+          id(reconfiguring) = false;
+          id(capture_state).publish_state(id(capture_enabled) ? "Capturando" : "Pronto");
+
+globals:
+  - id: capture_enabled
+    type: bool
+    restore_value: no
+    initial_value: "false"
+  - id: reconfiguring
+    type: bool
+    restore_value: no
+    initial_value: "false"
+  - id: reconfigure_restore_capture
+    type: bool
+    restore_value: no
+    initial_value: "false"
+  - id: rx_activity_ms
+    type: uint32_t
+    restore_value: no
+    initial_value: "0"
+  - id: rate_window_ms
+    type: uint32_t
+    restore_value: no
+    initial_value: "0"
+  - id: rate_window_bytes
+    type: uint32_t
+    restore_value: no
+    initial_value: "0"
+  - id: session_id
+    type: uint32_t
+    restore_value: no
+    initial_value: "0"
+  - id: session_bytes
+    type: uint32_t
+    restore_value: no
+    initial_value: "0"
+  - id: session_frame
+    type: uint32_t
+    restore_value: no
+    initial_value: "0"
+  - id: record_sequence
+    type: uint32_t
+    restore_value: no
+    initial_value: "0"
+  - id: discarded_bytes
+    type: uint32_t
+    restore_value: no
+    initial_value: "0"
+  - id: discarded_records
+    type: uint32_t
+    restore_value: no
+    initial_value: "0"
+  - id: boot_id
+    type: std::string
+    restore_value: no
+    initial_value: '"boot"'
+
+select:
+  - platform: template
+    id: baud_select
+    name: "Velocidade UART"
+    icon: mdi:speedometer
+    entity_category: config
+    options: ["300", "600", "1200", "2400", "4800", "9600", "19200", "38400", "57600", "115200"]
+    initial_option: "9600"
+    optimistic: true
+    restore_value: true
+    set_action:
+      - lambda: |-
+          id(apply_uart_settings)->execute(
+            static_cast<int32_t>(strtoul(x.c_str(), nullptr, 10)),
+            id(parity_select).current_option() == "Par" ? 1 : (id(parity_select).current_option() == "Ímpar" ? 2 : 0),
+            static_cast<int32_t>(strtoul(id(data_bits_select).current_option().c_str(), nullptr, 10)),
+            static_cast<int32_t>(strtoul(id(stop_bits_select).current_option().c_str(), nullptr, 10)));
+  - platform: template
+    id: parity_select
+    name: "Paridade"
+    icon: mdi:format-letter-case
+    entity_category: config
+    options: ["Nenhuma", "Par", "Ímpar"]
+    initial_option: "Nenhuma"
+    optimistic: true
+    restore_value: true
+    set_action:
+      - lambda: |-
+          id(apply_uart_settings)->execute(
+            static_cast<int32_t>(strtoul(id(baud_select).current_option().c_str(), nullptr, 10)),
+            x == "Par" ? 1 : (x == "Ímpar" ? 2 : 0),
+            static_cast<int32_t>(strtoul(id(data_bits_select).current_option().c_str(), nullptr, 10)),
+            static_cast<int32_t>(strtoul(id(stop_bits_select).current_option().c_str(), nullptr, 10)));
+  - platform: template
+    id: data_bits_select
+    name: "Bits de dados"
+    icon: mdi:numeric
+    entity_category: config
+    options: ["7", "8"]
+    initial_option: "8"
+    optimistic: true
+    restore_value: true
+    set_action:
+      - lambda: |-
+          id(apply_uart_settings)->execute(
+            static_cast<int32_t>(strtoul(id(baud_select).current_option().c_str(), nullptr, 10)),
+            id(parity_select).current_option() == "Par" ? 1 : (id(parity_select).current_option() == "Ímpar" ? 2 : 0),
+            static_cast<int32_t>(strtoul(x.c_str(), nullptr, 10)),
+            static_cast<int32_t>(strtoul(id(stop_bits_select).current_option().c_str(), nullptr, 10)));
+  - platform: template
+    id: stop_bits_select
+    name: "Bits de parada"
+    icon: mdi:ray-start-end
+    entity_category: config
+    options: ["1", "2"]
+    initial_option: "1"
+    optimistic: true
+    restore_value: true
+    set_action:
+      - lambda: |-
+          id(apply_uart_settings)->execute(
+            static_cast<int32_t>(strtoul(id(baud_select).current_option().c_str(), nullptr, 10)),
+            id(parity_select).current_option() == "Par" ? 1 : (id(parity_select).current_option() == "Ímpar" ? 2 : 0),
+            static_cast<int32_t>(strtoul(id(data_bits_select).current_option().c_str(), nullptr, 10)),
+            static_cast<int32_t>(strtoul(x.c_str(), nullptr, 10)));
+  - platform: template
+    id: decoder_select
+    name: "Decodificador"
+    icon: mdi:code-braces
+    entity_category: config
+    options: ["RAW/HEX", "ASCII legível", "Detecção passiva DLMS", "Detecção passiva ABNT"]
+    initial_option: "RAW/HEX"
+    optimistic: true
+    restore_value: true
+    set_action:
+      - text_sensor.template.publish:
+          id: passive_analysis
+          state: !lambda |-
+            return std::string("Modo de análise alterado para ") + x + "; análise continua somente passiva.";
+
+switch:
+  - platform: template
+    id: capture_switch
+    name: "Captura RX"
+    icon: mdi:record-rec
+    entity_category: config
+    optimistic: true
+    restore_mode: RESTORE_DEFAULT_OFF
+    turn_on_action:
+      - lambda: |-
+          id(capture_enabled) = true;
+          id(rx_activity_ms) = 0;
+          if (!id(reconfiguring)) {
+            id(session_id) += 1;
+            id(session_bytes) = 0;
+            id(session_frame) = 0;
+            id(record_sequence) = 0;
+            id(rate_window_bytes) = 0;
+            id(rate_window_ms) = millis();
+            id(capture_state).publish_state("Capturando");
+            if (id(mqtt_client).is_connected()) {
+              std::string payload = "{\"type\":\"session_start\",\"device\":\"${device_name}\",\"boot_id\":\"";
+              payload += tecnohead_meter_reader::json_escape(id(boot_id));
+              payload += "\",\"session\":" + std::to_string(id(session_id));
+              payload += ",\"timestamp_ms\":" + std::to_string(millis());
+              payload += ",\"baud\":";
+              payload += id(baud_select).current_option().c_str();
+              payload += ",\"parity\":\"" + tecnohead_meter_reader::json_escape(id(parity_select).current_option().c_str());
+              payload += "\",\"data_bits\":" + std::string(id(data_bits_select).current_option().c_str());
+              payload += ",\"stop_bits\":" + std::string(id(stop_bits_select).current_option().c_str()) + "}";
+              id(mqtt_client).publish("${capture_topic}", payload, 1, false);
+            }
+          }
+    turn_off_action:
+      - lambda: |-
+          id(capture_enabled) = false;
+          id(capture_state).publish_state("Pausada");
+          if (!id(reconfiguring) && id(mqtt_client).is_connected()) {
+            std::string payload = "{\"type\":\"session_stop\",\"device\":\"${device_name}\",\"session\":";
+            payload += std::to_string(id(session_id));
+            payload += ",\"timestamp_ms\":" + std::to_string(millis());
+            payload += ",\"bytes\":" + std::to_string(id(session_bytes));
+            payload += ",\"frames\":" + std::to_string(id(session_frame)) + "}";
+            id(mqtt_client).publish("${capture_topic}", payload, 1, false);
+          }
+  - platform: template
+    id: tx_reserved_switch
+    name: "TX reservado (desativado)"
+    icon: mdi:transmission-tower-off
+    entity_category: diagnostic
+    disabled_by_default: true
+    optimistic: false
+    assumed_state: false
+    turn_on_action:
+      - switch.turn_off: tx_reserved_switch
+      - logger.log:
+          level: WARN
+          format: "TX reservado: nenhuma transmissão UART é permitida na fase 1."
+
+button:
+  - platform: template
+    id: clear_button
+    name: "Limpar visualização"
+    icon: mdi:broom
+    entity_category: config
+    on_press:
+      - lambda: |-
+          id(last_frame_hex).publish_state("Visualização limpa — aguardando próximo frame");
+          id(last_frame_ascii).publish_state("Visualização limpa — aguardando próximo frame");
+          id(last_frame_length).publish_state("—");
+          id(last_frame_sequence).publish_state("—");
+          id(last_frame_at).publish_state("—");
+          id(passive_analysis).publish_state("Visualização limpa; não altera contadores nem o medidor.");
+  - platform: template
+    id: zero_button
+    name: "Zerar contadores"
+    icon: mdi:counter
+    entity_category: config
+    on_press:
+      - lambda: |-
+          id(session_bytes) = 0;
+          id(session_frame) = 0;
+          id(record_sequence) = 0;
+          id(discarded_bytes) = 0;
+          id(discarded_records) = 0;
+          id(bytes_sensor).publish_state(0);
+          id(frames_sensor).publish_state(0);
+          id(discarded_sensor).publish_state(0);
+          id(passive_analysis).publish_state("Contadores zerados no laboratório; o medidor não foi alterado.");
+  - platform: template
+    id: marker_button
+    name: "Criar marcação"
+    icon: mdi:flag-outline
+    entity_category: config
+    on_press:
+      - lambda: |-
+          const uint32_t now = millis();
+          id(last_frame_at).publish_state("MARCAÇÃO — " + std::to_string(now) + " ms desde boot");
+          if (id(mqtt_client).is_connected()) {
+            std::string payload = "{\"type\":\"marker\",\"device\":\"${device_name}\",\"boot_id\":\"";
+            payload += tecnohead_meter_reader::json_escape(id(boot_id));
+            payload += "\",\"session\":" + std::to_string(id(session_id));
+            payload += ",\"sequence\":" + std::to_string(id(record_sequence) + 1);
+            payload += ",\"timestamp_ms\":" + std::to_string(now) + "}";
+            id(mqtt_client).publish("${capture_topic}", payload, 1, false);
+          }
+
+text_sensor:
+  - platform: template
+    id: capture_state
+    name: "Estado"
+    icon: mdi:state-machine
+    entity_category: diagnostic
+  - platform: template
+    id: applied_config
+    name: "Configuração aplicada"
+    icon: mdi:tune-variant
+    entity_category: diagnostic
+  - platform: template
+    id: last_frame_hex
+    name: "Último frame HEX"
+    icon: mdi:hexadecimal
+    entity_category: diagnostic
+  - platform: template
+    id: last_frame_ascii
+    name: "Último frame ASCII"
+    icon: mdi:format-letter-case
+    entity_category: diagnostic
+  - platform: template
+    id: passive_analysis
+    name: "Análise passiva"
+    icon: mdi:radar
+    entity_category: diagnostic
+  - platform: template
+    id: last_frame_length
+    name: "Último frame — comprimento"
+    icon: mdi:counter
+    entity_category: diagnostic
+  - platform: template
+    id: last_frame_sequence
+    name: "Último frame — sequência"
+    icon: mdi:numeric
+    entity_category: diagnostic
+  - platform: template
+    id: last_frame_at
+    name: "Último frame — timestamp"
+    icon: mdi:clock-outline
+    entity_category: diagnostic
+  - platform: template
+    id: capture_channel
+    name: "Canal de captura"
+    icon: mdi:lan-connect
+    entity_category: diagnostic
+
+sensor:
+  - platform: template
+    id: bytes_sensor
+    name: "Bytes recebidos"
+    icon: mdi:counter
+    unit_of_measurement: B
+    accuracy_decimals: 0
+    entity_category: diagnostic
+    state_class: measurement
+    update_interval: never
+  - platform: template
+    id: frames_sensor
+    name: "Frames capturados"
+    icon: mdi:shape-outline
+    unit_of_measurement: frames
+    accuracy_decimals: 0
+    entity_category: diagnostic
+    state_class: measurement
+    update_interval: never
+  - platform: template
+    id: data_rate_sensor
+    name: "Taxa de dados RX"
+    icon: mdi:speedometer
+    unit_of_measurement: B/s
+    accuracy_decimals: 1
+    entity_category: diagnostic
+    update_interval: never
+  - platform: template
+    id: last_activity_sensor
+    name: "Última atividade"
+    icon: mdi:timer-outline
+    unit_of_measurement: s
+    accuracy_decimals: 1
+    entity_category: diagnostic
+    update_interval: never
+  - platform: template
+    id: discarded_sensor
+    name: "Registros descartados"
+    icon: mdi:alert-circle-outline
+    unit_of_measurement: records
+    accuracy_decimals: 0
+    entity_category: diagnostic
+    update_interval: never
+  - platform: wifi_signal
+    name: "RSSI Wi-Fi"
+    icon: mdi:wifi
+    entity_category: diagnostic
+    update_interval: 30s
+  - platform: uptime
+    name: "Uptime"
+    icon: mdi:timer-sand
+    entity_category: diagnostic
+    update_interval: 30s
+  - platform: debug
+    free:
+      name: "Heap livre"
+      icon: mdi:memory
+      entity_category: diagnostic
+    block:
+      name: "Maior bloco de heap"
+      icon: mdi:memory
+      entity_category: diagnostic
+    loop_time:
+      name: "Tempo de loop"
+      icon: mdi:timer-cog-outline
+      entity_category: diagnostic
+
+binary_sensor:
+  - platform: status
+    id: api_connected
+    name: "API conectada"
+    icon: mdi:api
+    entity_category: diagnostic
+  - platform: template
+    id: rx_traffic
+    name: "Há tráfego RX"
+    icon: mdi:transfer-down
+    entity_category: diagnostic
+
+debug:
+  update_interval: 30s

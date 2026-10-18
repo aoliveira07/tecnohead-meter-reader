@@ -1,0 +1,36 @@
+name: "TecnoHead Meter Reader — Console"
+slug: "tecnohead_meter_reader"
+description: "Console local, buffer persistente e exportação de capturas UART do TecnoHead Meter Reader"
+version: "0.1.0"
+stage: experimental
+url: "https://github.com/aoliveira07/tecnohead-meter-reader"
+startup: application
+boot: auto
+timeout: 30
+
+arch:
+  - amd64
+  - aarch64
+
+image: ghcr.io/aoliveira07/tecnohead-meter-reader
+init: false
+apparmor: true
+
+ingress: true
+ingress_port: 8098
+panel_icon: mdi:serial-port
+panel_title: TecnoHead Meter Reader
+panel_admin: true
+
+homeassistant: "2026.10.0"
+homeassistant_api: true
+hassio_api: true
+hassio_role: default
+
+services:
+  - mqtt:want
+
+map:
+  - type: data
+
+backup: hot

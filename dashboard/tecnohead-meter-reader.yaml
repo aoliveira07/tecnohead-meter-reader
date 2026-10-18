@@ -1,0 +1,141 @@
+title: TecnoHead Meter Reader — Laboratório Serial
+views:
+  - title: Meter Reader
+    path: tecnohead-meter-reader
+    icon: mdi:meter-electric-outline
+    badges:
+      - entity: binary_sensor.tecnohead_meter_reader_api_conectada
+      - entity: binary_sensor.tecnohead_meter_reader_ha_trafego_rx
+    cards:
+      - type: markdown
+        content: |
+          # TecnoHead Meter Reader
+          Laboratório de captura **passiva RX**. GPIO16 é RX TTL 3,3 V; GPIO17 permanece reservado e desativado.
+
+          **Sem bytes recebidos** não significa que a porta esteja desabilitada: RS232 pode exigir requisição/autenticação e a fase 1 não transmite nada.
+      - type: grid
+        columns: 2
+        square: false
+        cards:
+          - type: entities
+            title: Estado do dispositivo
+            show_header_toggle: false
+            entities:
+              - entity: binary_sensor.tecnohead_meter_reader_api_conectada
+                name: API ESPHome / HA
+              - entity: binary_sensor.tecnohead_meter_reader_ha_trafego_rx
+                name: Há tráfego RX
+              - entity: text_sensor.tecnohead_meter_reader_estado
+                name: Estado
+              - entity: text_sensor.tecnohead_meter_reader_configuracao_aplicada
+                name: Configuração aplicada
+              - entity: text_sensor.tecnohead_meter_reader_canal_de_captura
+                name: Canal de captura
+              - entity: switch.tecnohead_meter_reader_tx_reservado_desativado
+                name: TX reservado (deve ficar desligado)
+          - type: entities
+            title: Saúde do ESP32
+            show_header_toggle: false
+            entities:
+              - entity: sensor.tecnohead_meter_reader_rssi_wifi
+                name: RSSI Wi-Fi
+              - entity: sensor.tecnohead_meter_reader_heap_livre
+                name: Heap livre
+              - entity: sensor.tecnohead_meter_reader_maior_bloco_de_heap
+                name: Maior bloco de heap
+              - entity: sensor.tecnohead_meter_reader_uptime
+                name: Uptime
+              - entity: sensor.tecnohead_meter_reader_tempo_de_loop
+                name: Tempo de loop
+      - type: entities
+        title: Parâmetros seriais — aplicar em tempo real
+        show_header_toggle: false
+        entities:
+          - entity: select.tecnohead_meter_reader_velocidade_uart
+            name: Velocidade UART
+          - entity: select.tecnohead_meter_reader_paridade
+            name: Paridade
+          - entity: select.tecnohead_meter_reader_bits_de_dados
+            name: Bits de dados
+          - entity: select.tecnohead_meter_reader_bits_de_parada
+            name: Bits de parada
+          - entity: select.tecnohead_meter_reader_decodificador
+            name: Decodificador passivo
+          - entity: switch.tecnohead_meter_reader_captura_rx
+            name: Captura RX
+      - type: grid
+        columns: 3
+        square: false
+        cards:
+          - type: button
+            entity: button.tecnohead_meter_reader_limpar_visualizacao
+            name: Limpar visualização
+            icon: mdi:broom
+            tap_action:
+              action: call-service
+              service: button.press
+              target:
+                entity_id: button.tecnohead_meter_reader_limpar_visualizacao
+          - type: button
+            entity: button.tecnohead_meter_reader_zerar_contadores
+            name: Zerar contadores
+            icon: mdi:counter
+            tap_action:
+              action: call-service
+              service: button.press
+              target:
+                entity_id: button.tecnohead_meter_reader_zerar_contadores
+          - type: button
+            entity: button.tecnohead_meter_reader_criar_marcacao
+            name: Marcar teste
+            icon: mdi:flag-outline
+            tap_action:
+              action: call-service
+              service: button.press
+              target:
+                entity_id: button.tecnohead_meter_reader_criar_marcacao
+      - type: grid
+        columns: 2
+        square: false
+        cards:
+          - type: entities
+            title: Resumo da captura
+            show_header_toggle: false
+            entities:
+              - entity: sensor.tecnohead_meter_reader_bytes_recebidos
+                name: Bytes recebidos na sessão
+              - entity: sensor.tecnohead_meter_reader_frames_capturados
+                name: Frames agrupados
+              - entity: sensor.tecnohead_meter_reader_taxa_de_dados_rx
+                name: Taxa de dados RX
+              - entity: sensor.tecnohead_meter_reader_ultima_atividade
+                name: Tempo desde último byte
+              - entity: sensor.tecnohead_meter_reader_registros_descartados
+                name: Registros descartados
+          - type: entities
+            title: Último frame
+            show_header_toggle: false
+            entities:
+              - entity: text_sensor.tecnohead_meter_reader_ultimo_frame_timestamp
+                name: Timestamp / marca
+              - entity: text_sensor.tecnohead_meter_reader_ultimo_frame_comprimento
+                name: Comprimento
+              - entity: text_sensor.tecnohead_meter_reader_ultimo_frame_sequencia
+                name: Sequência
+              - entity: text_sensor.tecnohead_meter_reader_analise_passiva
+                name: Análise passiva
+      - type: markdown
+        content: |
+          ## HEX e ASCII
+          **HEX (prévia curta):** `{{ states('text_sensor.tecnohead_meter_reader_ultimo_frame_hex') }}`
+
+          **ASCII seguro:** `{{ states('text_sensor.tecnohead_meter_reader_ultimo_frame_ascii') }}`
+
+          A prévia pode ser truncada com indicação de bytes restantes. A captura íntegra não é armazenada como estado do Recorder: abra o painel lateral **TecnoHead Meter Reader** para o console, buffer circular e exportação `.bin`, `.jsonl` e `.csv`.
+      - type: markdown
+        content: |
+          ## Segurança e escopo
+          - Bancada: gerador UART TTL 3,3 V → GPIO16, com GND comum somente no circuito de bancada.
+          - Futuro Nansen: interface RS232 autorizada → conversor RS232/UART com isolamento galvânico validado → GPIO16.
+          - Não ligar GPIO16, GPIO17, 3V3 ou GND diretamente aos bornes RS232; não romper lacre, não tocar a porta óptica e não fazer consultas TX.
+          - Hipóteses DLMS/HDLC ou ABNT são somente indicativas; códigos de visor 03/103 não são endereços OBIS.

@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>TecnoHead Meter Reader — Console</title>
+    <link rel="stylesheet" href="/static/style.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div>
+        <p class="eyebrow">TECNOHEAD · LABORATÓRIO SERIAL</p>
+        <h1>Meter Reader Console</h1>
+        <p class="subtitle">Captura RX passiva, investigação e exportação local.</p>
+      </div>
+      <div class="badges">
+        <span id="ha-state" class="badge neutral">HAOS</span>
+        <span id="mqtt-state" class="badge neutral">MQTT</span>
+      </div>
+    </header>
+
+    <main>
+      <section class="notice warning">
+        <strong>Limite físico:</strong> esta ferramenta só é bancada UART TTL 3,3 V.
+        GPIO16 nunca deve ser ligado diretamente ao RS232 do Nansen; TX permanece reservado e desativado.
+      </section>
+
+      <section class="grid two">
+        <article class="card status-card">
+          <div class="card-heading"><h2>Canal de captura</h2><span id="capture-state" class="status-dot offline">offline</span></div>
+          <dl class="metrics">
+            <div><dt>Mensagens MQTT</dt><dd id="message-count">0</dd></div>
+            <div><dt>Registros descartados</dt><dd id="dropped-count">0</dd></div>
+            <div><dt>Último recebimento</dt><dd id="last-received">—</dd></div>
+            <div><dt>Armazenamento</dt><dd id="storage">—</dd></div>
+          </dl>
+          <p id="error-state" class="muted">Aguardando o dispositivo publicar uma sessão.</p>
+        </article>
+        <article class="card">
+          <div class="card-heading"><h2>Comandos seguros</h2><span class="tag">MQTT → entidade HA</span></div>
+          <div class="button-row">
+            <button data-command="start" class="primary">Iniciar captura</button>
+            <button data-command="stop">Finalizar sessão</button>
+            <button data-command="marker">Marcar teste</button>
+            <button data-command="clear">Limpar visualização</button>
+            <button data-command="zero">Zerar contadores</button>
+          </div>
+          <p class="muted">Os comandos não escrevem na UART e não alteram o medidor.</p>
+        </article>
+      </section>
+
+      <section class="card">
+        <div class="card-heading"><h2>Frames recentes</h2><span class="tag">RX · ordem de chegada</span></div>
+        <div id="frames" class="frame-list"><p class="muted">Nenhum frame recebido.</p></div>
+      </section>
+
+      <section class="card">
+        <div class="card-heading"><h2>Sessões exportáveis</h2><span class="tag">.bin · .jsonl · .csv</span></div>
+        <div id="sessions" class="session-list"><p class="muted">Nenhuma sessão criada.</p></div>
+      </section>
+
+      <section class="card instructions">
+        <div class="card-heading"><h2>Leitura do resultado</h2><span class="tag">passivo</span></div>
+        <ul>
+          <li>“Sem bytes recebidos” não prova que a porta está desabilitada: o medidor pode exigir requisição ou autenticação.</li>
+          <li>Uma sessão incompleta indica perda de MQTT, lacuna de sequência ou limite de armazenamento; o console não mascara esse estado.</li>
+          <li>Os arquivos são gravados no volume persistente local do App, em <code>/data/sessions</code>, nunca na flash do ESP32.</li>
+          <li>Hipóteses DLMS/HDLC ou ABNT são apenas indícios de framing e não constituem identificação de protocolo.</li>
+        </ul>
+      </section>
+    </main>
+    <script src="/static/app.js"></script>
+  </body>
+</html>

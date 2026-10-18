@@ -1,0 +1,12 @@
+__pycache__/
+.pytest_cache/
+.venv/
+.env
+capture-console/data/
+capture-console/sessions/
+firmware/secrets.yaml
+*.bin
+*.jsonl
+*.csv
+docs/screenshots/*.png
+docs/screenshots/*.jpg
