@@ -115,5 +115,6 @@ O firmware foi compilado pelo ESPHome Device Builder instalado no HAOS, porque o
 - [Segurança e limites](docs/SEGURANCA_E_LIMITES.md)
 - [Diagnóstico passivo de protocolos](docs/PROTOCOLOS.md)
 - [Homologação](docs/HOMOLOGACAO.md)
+- [Validação HAOS real](docs/VALIDACAO_HAOS_REAL.md)
 - [Capturas reais](docs/screenshots/README.md)
 - [Regra operacional autorizada](docs/EXECUCAO_AUTORIZADA.md)
